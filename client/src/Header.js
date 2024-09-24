@@ -1,25 +1,29 @@
 import { useEffect, useState, useContext } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom"; // Import useNavigate
 import { UserContext } from "./UserContext";
 
 export default function Header() {
   const { setUserInfo, userInfo } = useContext(UserContext);
+  const navigate = useNavigate(); // Initialize navigate function
+
   useEffect(() => {
-    fetch("http://localhost:4000/profile", {
+    fetch(`${process.env.REACT_APP_BACKEND_URL}/profile`, {
       credentials: "include",
     }).then((response) => {
       response.json().then((userInfo) => {
         setUserInfo(userInfo);
       });
     });
-  }, []);
+  }, [setUserInfo]);
 
   function logout() {
-    fetch("http://localhost:4000/logout", {
+    fetch(`${process.env.REACT_APP_BACKEND_URL}/logout`, {
       credentials: "include",
       method: "POST",
+    }).then(() => {
+      setUserInfo(null);
+      navigate("/"); // Redirect to home page after logout
     });
-    setUserInfo(null);
   }
 
   const username = userInfo?.username;

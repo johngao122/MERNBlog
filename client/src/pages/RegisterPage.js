@@ -1,17 +1,24 @@
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 
 export default function RegisterPage() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const navigate = useNavigate();
+
   async function register(ev) {
     ev.preventDefault();
-    const response = await fetch("http://localhost:4000/register", {
-      method: "POST",
-      body: JSON.stringify({ username, password }),
-      headers: { "Content-Type": "application/json" },
-    });
+    const response = await fetch(
+      `${process.env.REACT_APP_BACKEND_URL}/register`,
+      {
+        method: "POST",
+        body: JSON.stringify({ username, password }),
+        headers: { "Content-Type": "application/json" },
+      }
+    );
     if (response.status === 200) {
-      alert("Registration sucessful");
+      alert("Registration successful");
+      navigate("/");
     } else {
       alert("Registration failed");
     }
