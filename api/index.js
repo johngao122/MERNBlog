@@ -1,3 +1,4 @@
+require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
 const { default: mongoose } = require("mongoose");
@@ -13,16 +14,14 @@ const fs = require("fs");
 const { userInfo } = require("os");
 
 const salt = bcrypt.genSaltSync(10);
-const secret = "asiojd2iodjjdaoisjdoi2j3d1";
+const secret = process.env.SECRET;
 
 app.use(cors({ credentials: true, origin: "http://localhost:3000" }));
 app.use(express.json());
 app.use(cookieParser());
 app.use("/uploads", express.static(__dirname + "/uploads"));
 
-mongoose.connect(
-  "mongodb+srv://Blog-access:CBZUMlDoVlpkqSRA@cluster0.mi5jf.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0"
-);
+mongoose.connect(process.env.MONGO_URI);
 
 app.post("/register", async (req, res) => {
   const { username, password } = req.body;
