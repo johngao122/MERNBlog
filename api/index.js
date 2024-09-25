@@ -9,14 +9,22 @@ const app = express();
 const jwt = require("jsonwebtoken");
 const cookieParser = require("cookie-parser");
 const multer = require("multer");
-const uploadMiddleWare = multer({ dest: "uploads/" });
+const upload = multer({ dest: "uploads/" });
 const fs = require("fs");
 const { userInfo } = require("os");
+const { S3Client, PutObjectCommand } = require("@aws-sdk/client-s3");
+const multerS3 = require("multer-s3");
 
 const salt = bcrypt.genSaltSync(10);
 const secret = process.env.SECRET;
 
+const s3 = new S3Client({ region: process.env.AWS_REGION });
+
 const allowedOrigins = [process.env.FRONTEND_URL, "http://localhost:3000"];
+
+const getS3Url = (key) => {
+  return `https://${process.env.AWS_S3_BUCKET_NAME}.s3.${process.env.AWS_REGION}.amazonaws.com/${key}`;
+};
 
 app.use(
   cors({
@@ -35,6 +43,10 @@ app.use(cookieParser());
 app.use("/uploads", express.static(__dirname + "/uploads"));
 
 mongoose.connect(process.env.MONGO_URI);
+
+app.get("/", (req, res) => {
+  res.send("Welcome to the API!");
+});
 
 app.post("/register", async (req, res) => {
   const { username, password } = req.body;
@@ -78,35 +90,64 @@ app.post("/logout", (req, res) => {
   res.cookie("token", "").json("ok");
 });
 
-app.post("/post", uploadMiddleWare.single("file"), async (req, res) => {
+app.post("/post", upload.single("file"), async (req, res) => {
   const { originalname, path } = req.file;
-  const parts = originalname.split(".");
-  const ext = parts[parts.length - 1];
-  const newPath = path + "." + ext;
-  fs.renameSync(path, newPath);
-  const { token } = req.cookies;
-  jwt.verify(token, secret, {}, async (err, info) => {
-    if (err) throw err;
-    const { title, summary, content } = req.body;
-    const postDoc = await Post.create({
-      title,
-      summary,
-      content,
-      cover: newPath,
-      author: info.id,
+  const fileStream = fs.createReadStream(path);
+
+  const uploadParams = {
+    Bucket: process.env.AWS_S3_BUCKET_NAME,
+    Key: `${Date.now().toString()}-${originalname}`,
+    Body: fileStream,
+  };
+
+  try {
+    const data = await s3.send(new PutObjectCommand(uploadParams));
+    fs.unlinkSync(path);
+
+    const { token } = req.cookies;
+    jwt.verify(token, secret, {}, async (err, info) => {
+      if (err) throw err;
+      const { title, summary, content } = req.body;
+
+      const postDoc = await Post.create({
+        title,
+        summary,
+        content,
+        cover: uploadParams.Key,
+        author: info.id,
+      });
+
+      postDoc.cover = getS3Url(postDoc.cover);
+
+      res.json(postDoc);
     });
-    res.json(postDoc);
-  });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Error uploading to S3" });
+  }
 });
 
-app.put("/post", uploadMiddleWare.single("file"), async (req, res) => {
-  let newPath = null;
+app.put("/post", upload.single("file"), async (req, res) => {
+  let location = null;
+
   if (req.file) {
-    const { originalname, path } = req.file;
-    const parts = originalname.split(".");
-    const ext = parts[parts.length - 1];
-    newPath = path + "." + ext;
-    fs.renameSync(path, newPath);
+    const { originalname, path: path } = req.file;
+    const fileStream = fs.createReadStream(path);
+
+    const uploadParams = {
+      Bucket: process.env.AWS_S3_BUCKET_NAME,
+      Key: `${Date.now().toString()}-${originalname}`,
+      Body: fileStream,
+    };
+
+    try {
+      const data = await s3.send(new PutObjectCommand(uploadParams));
+      fs.unlinkSync(path);
+      location = uploadParams.Key;
+    } catch (err) {
+      console.error(err);
+      return res.status(500).json({ error: "Error uploading to S3" });
+    }
   }
 
   const { token } = req.cookies;
@@ -116,13 +157,14 @@ app.put("/post", uploadMiddleWare.single("file"), async (req, res) => {
     const postDoc = await Post.findById(id);
     const isAuthor = JSON.stringify(postDoc.author) === JSON.stringify(info.id);
     if (!isAuthor) {
-      res.status(400).json("you are not the author");
+      return res.status(400).json("you are not the author");
     }
+
     postDoc.set({
       title,
       summary,
       content,
-      cover: newPath ? newPath : postDoc.cover,
+      cover: location ? location : postDoc.cover,
     });
 
     await postDoc.save();
@@ -131,17 +173,23 @@ app.put("/post", uploadMiddleWare.single("file"), async (req, res) => {
 });
 
 app.get("/post", async (req, res) => {
-  res.json(
-    await Post.find()
-      .populate("author", ["username"])
-      .sort({ createdAt: -1 })
-      .limit(20)
-  );
+  const posts = await Post.find()
+    .populate("author", ["username"])
+    .sort({ createdAt: -1 })
+    .limit(20);
+  posts.forEach((post) => {
+    post.cover = getS3Url(post.cover);
+  });
+
+  res.json(posts);
 });
 
 app.get("/post/:id", async (req, res) => {
   const { id } = req.params;
-  postDoc = await Post.findById(id).populate("author", ["username"]);
+  const postDoc = await Post.findById(id).populate("author", ["username"]);
+
+  postDoc.cover = getS3Url(postDoc.cover);
+
   res.json(postDoc);
 });
 

@@ -7,6 +7,7 @@ export default function PostPage() {
   const [postInfo, setPostInfo] = useState(null);
   const { userInfo } = useContext(UserContext);
   const { id } = useParams();
+
   useEffect(() => {
     fetch(`${process.env.REACT_APP_BACKEND_URL}/post/${id}`).then(
       (response) => {
@@ -15,9 +16,9 @@ export default function PostPage() {
         });
       }
     );
-  }, []);
+  }, [id]);
 
-  if (!postInfo) return "";
+  if (!postInfo) return <div>Loading...</div>;
 
   return (
     <div className="post-page">
@@ -46,10 +47,7 @@ export default function PostPage() {
         </div>
       )}
       <div className="image">
-        <img
-          src={`${process.env.REACT_APP_BACKEND_URL}/${postInfo.cover}`}
-          alt=""
-        />
+        <img src={postInfo.cover} alt="" />
       </div>
 
       <div
