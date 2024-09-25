@@ -17,7 +17,7 @@ const secret = process.env.SECRET;
 
 const s3 = new S3Client({ region: process.env.AWS_REGION });
 
-const allowedOrigins = [process.env.FRONTEND_URL, "http://localhost:3000"];
+const allowedOrigins = [process.env.FRONTEND_URL];
 
 const getS3Url = (key) => {
   return `https://${process.env.AWS_S3_BUCKET_NAME}.s3.${process.env.AWS_REGION}.amazonaws.com/${key}`;
