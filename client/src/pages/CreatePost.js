@@ -14,10 +14,9 @@ export default function CreatePost() {
   async function createNewPost(ev) {
     ev.preventDefault();
 
-    // Check if a file is selected
     if (!files || files.length === 0) {
       alert("Please upload a cover picture before creating the post.");
-      return; // Stop the function execution
+      return;
     }
 
     const data = new FormData();
