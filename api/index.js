@@ -9,10 +9,7 @@ const app = express();
 const jwt = require("jsonwebtoken");
 const cookieParser = require("cookie-parser");
 const multer = require("multer");
-const upload = multer({ dest: "uploads/" });
-const fs = require("fs");
-const { userInfo } = require("os");
-const { S3Client, PutObjectCommand } = require("@aws-sdk/client-s3");
+const { S3Client } = require("@aws-sdk/client-s3");
 const multerS3 = require("multer-s3");
 
 const salt = bcrypt.genSaltSync(10);
@@ -40,7 +37,19 @@ app.use(
 );
 app.use(express.json());
 app.use(cookieParser());
-app.use("/uploads", express.static(__dirname + "/uploads"));
+
+const upload = multer({
+  storage: multerS3({
+    s3: s3,
+    bucket: process.env.AWS_S3_BUCKET_NAME,
+    metadata: function (req, file, cb) {
+      cb(null, { fieldName: file.fieldname });
+    },
+    key: function (req, file, cb) {
+      cb(null, `${Date.now().toString()}-${file.originalname}`);
+    },
+  }),
+});
 
 mongoose.connect(process.env.MONGO_URI);
 
@@ -91,65 +100,25 @@ app.post("/logout", (req, res) => {
 });
 
 app.post("/post", upload.single("file"), async (req, res) => {
-  const { originalname, path } = req.file;
-  const fileStream = fs.createReadStream(path);
+  const { token } = req.cookies;
+  jwt.verify(token, secret, {}, async (err, info) => {
+    if (err) throw err;
+    const { title, summary, content } = req.body;
 
-  const uploadParams = {
-    Bucket: process.env.AWS_S3_BUCKET_NAME,
-    Key: `${Date.now().toString()}-${originalname}`,
-    Body: fileStream,
-  };
-
-  try {
-    const data = await s3.send(new PutObjectCommand(uploadParams));
-    fs.unlinkSync(path);
-
-    const { token } = req.cookies;
-    jwt.verify(token, secret, {}, async (err, info) => {
-      if (err) throw err;
-      const { title, summary, content } = req.body;
-
-      const postDoc = await Post.create({
-        title,
-        summary,
-        content,
-        cover: uploadParams.Key,
-        author: info.id,
-      });
-
-      postDoc.cover = getS3Url(postDoc.cover);
-
-      res.json(postDoc);
+    const postDoc = await Post.create({
+      title,
+      summary,
+      content,
+      cover: req.file.key,
+      author: info.id,
     });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Error uploading to S3" });
-  }
+
+    postDoc.cover = getS3Url(postDoc.cover);
+    res.json(postDoc);
+  });
 });
 
 app.put("/post", upload.single("file"), async (req, res) => {
-  let location = null;
-
-  if (req.file) {
-    const { originalname, path: path } = req.file;
-    const fileStream = fs.createReadStream(path);
-
-    const uploadParams = {
-      Bucket: process.env.AWS_S3_BUCKET_NAME,
-      Key: `${Date.now().toString()}-${originalname}`,
-      Body: fileStream,
-    };
-
-    try {
-      const data = await s3.send(new PutObjectCommand(uploadParams));
-      fs.unlinkSync(path);
-      location = uploadParams.Key;
-    } catch (err) {
-      console.error(err);
-      return res.status(500).json({ error: "Error uploading to S3" });
-    }
-  }
-
   const { token } = req.cookies;
   jwt.verify(token, secret, {}, async (err, info) => {
     if (err) throw err;
@@ -157,17 +126,22 @@ app.put("/post", upload.single("file"), async (req, res) => {
     const postDoc = await Post.findById(id);
     const isAuthor = JSON.stringify(postDoc.author) === JSON.stringify(info.id);
     if (!isAuthor) {
-      return res.status(400).json("you are not the author");
+      return res.status(400).json("You are not the author");
+    }
+
+    if (req.file) {
+      postDoc.cover = req.file.key;
     }
 
     postDoc.set({
       title,
       summary,
       content,
-      cover: location ? location : postDoc.cover,
+      cover: postDoc.cover,
     });
 
     await postDoc.save();
+    postDoc.cover = getS3Url(postDoc.cover);
     res.json(postDoc);
   });
 });
@@ -177,6 +151,7 @@ app.get("/post", async (req, res) => {
     .populate("author", ["username"])
     .sort({ createdAt: -1 })
     .limit(20);
+
   posts.forEach((post) => {
     post.cover = getS3Url(post.cover);
   });
