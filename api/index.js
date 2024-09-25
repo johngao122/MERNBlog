@@ -113,6 +113,7 @@ app.post("/logout", (req, res) => {
 
 app.post("/post", upload.single("file"), async (req, res) => {
   const { token } = req.cookies;
+  console.log("Received token:", token);
   jwt.verify(token, secret, {}, async (err, info) => {
     if (err) throw err;
     const { title, summary, content } = req.body;
